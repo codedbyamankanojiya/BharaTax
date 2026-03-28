@@ -4,14 +4,19 @@
 #include <string.h>
 #include <time.h>
 
-// Constants for tax calculation
+// Constants for tax calculation (FY 2025-26 - New Tax Regime)
 #define MAX_INCOME 1000000000  // 100 Crore limit
 #define MIN_INCOME 0
-#define SLAB_1_LIMIT 250000   // 2.5 Lakhs
-#define SLAB_2_LIMIT 500000   // 5 Lakhs
+#define SLAB_1_LIMIT 300000   // 3 Lakhs
+#define SLAB_2_LIMIT 700000   // 7 Lakhs
 #define SLAB_3_LIMIT 1000000  // 10 Lakhs
+#define SLAB_4_LIMIT 1200000  // 12 Lakhs
+#define SLAB_5_LIMIT 1500000  // 15 Lakhs
 #define CESS_RATE 0.04        // 4% Health & Education Cess
-#define MAX_DEDUCTION 150000  // 1.5 Lakhs under 80C
+#define MAX_DEDUCTION_80C 150000  // 1.5 Lakhs under 80C
+#define STANDARD_DEDUCTION 75000   // 75,000 standard deduction for salaried
+#define REBATE_87A_LIMIT 700000   // 7 Lakhs limit for Section 87A rebate
+#define REBATE_87A_AMOUNT 25000   // 25,000 rebate under Section 87A
 
 // Format strings for consistent display
 #define BORDER_LINE     "+-----------------------------------------------------------+\n"
@@ -22,14 +27,17 @@
 // Structure to store tax details
 typedef struct {
     long long gross_income;    // Changed to long long for larger income amounts
-    double deductions;         // Changed to double for better precision
+    double deductions_80c;     // Section 80C deductions
+    double standard_deduction; // Standard deduction for salaried
     double taxable_income;
     double base_tax;
     double cess;
+    double rebate_87a;        // Section 87A rebate
     double total_tax;
     double monthly_tax;        // Added to store monthly tax
     char assessment_year[5];
     int tax_slab;             // Added to store current tax slab
+    int is_salaried;          // Flag for salaried individuals
 } TaxDetails;
 
 // Function to clear input buffer
@@ -65,7 +73,7 @@ void formatCurrency(char *str, double amount) {
     int formatIdx = totalLen - 1;  // Index for placing digits and commas
     int digitCount = 0;  // Count digits after last comma
     
-    str[totalLen] = '\0';  // Null terminate the string
+    str[totalLen] = '\0';  // Null terminate string
     
     while (numIdx >= 0) {
         if (digitCount == 2 && numIdx > 0) {  // Place comma after every 2 digits
@@ -171,33 +179,41 @@ float calculateDeductions() {
         choice = validateInput("Enter choice (1-6): ", 1, 6);
         
         if (choice != 6) {
-            float amount = validateInput("Enter amount (Rs.): ", 0, MAX_DEDUCTION);
+            float amount = validateInput("Enter amount (Rs.): ", 0, MAX_DEDUCTION_80C);
             total_deductions += amount;
             char formatted_curr[50], formatted_remaining[50];
             
-            if (total_deductions > MAX_DEDUCTION) {
+            if (total_deductions > MAX_DEDUCTION_80C) {
                 printf("\nMaximum deduction limit (Rs. 1,50,000) exceeded!\n");
                 printf("Considering only Rs. 1,50,000 as total deduction.\n");
-                total_deductions = MAX_DEDUCTION;
+                total_deductions = MAX_DEDUCTION_80C;
                 break;
             }
             
             formatCurrency(formatted_curr, total_deductions);
-            formatCurrency(formatted_remaining, MAX_DEDUCTION - total_deductions);
+            formatCurrency(formatted_remaining, MAX_DEDUCTION_80C - total_deductions);
             printf("\nCurrent total deductions:  Rs. %s\n", formatted_curr);
             printf("Remaining deduction limit: Rs. %s\n", formatted_remaining);
         }
-    } while (choice != 6 && total_deductions < MAX_DEDUCTION);
+    } while (choice != 6 && total_deductions < MAX_DEDUCTION_80C);
     
     return total_deductions;
 }
 
-// Function to calculate tax based on income
+// Function to calculate tax based on income (FY 2025-26 New Tax Regime)
 void calculateTax(TaxDetails *tax_info) {
-    // Calculate taxable income
-    tax_info->taxable_income = (double)tax_info->gross_income - tax_info->deductions;
+    // Calculate total deductions
+    double total_deductions = tax_info->deductions_80c + tax_info->standard_deduction;
     
-    // Determine tax slab and calculate base tax
+    // Calculate taxable income
+    tax_info->taxable_income = (double)tax_info->gross_income - total_deductions;
+    
+    // Ensure taxable income is not negative
+    if (tax_info->taxable_income < 0) {
+        tax_info->taxable_income = 0;
+    }
+    
+    // Determine tax slab and calculate base tax (New Regime FY 2025-26)
     if (tax_info->taxable_income <= SLAB_1_LIMIT) {
         tax_info->base_tax = 0;
         tax_info->tax_slab = 0;
@@ -205,18 +221,37 @@ void calculateTax(TaxDetails *tax_info) {
         tax_info->base_tax = (tax_info->taxable_income - SLAB_1_LIMIT) * 0.05;
         tax_info->tax_slab = 5;
     } else if (tax_info->taxable_income <= SLAB_3_LIMIT) {
-        tax_info->base_tax = 12500 + (tax_info->taxable_income - SLAB_2_LIMIT) * 0.20;
+        tax_info->base_tax = 15000 + (tax_info->taxable_income - SLAB_2_LIMIT) * 0.10;
+        tax_info->tax_slab = 10;
+    } else if (tax_info->taxable_income <= SLAB_4_LIMIT) {
+        tax_info->base_tax = 55000 + (tax_info->taxable_income - SLAB_3_LIMIT) * 0.15;
+        tax_info->tax_slab = 15;
+    } else if (tax_info->taxable_income <= SLAB_5_LIMIT) {
+        tax_info->base_tax = 95000 + (tax_info->taxable_income - SLAB_4_LIMIT) * 0.20;
         tax_info->tax_slab = 20;
     } else {
-        tax_info->base_tax = 112500 + (tax_info->taxable_income - SLAB_3_LIMIT) * 0.30;
+        tax_info->base_tax = 155000 + (tax_info->taxable_income - SLAB_5_LIMIT) * 0.30;
         tax_info->tax_slab = 30;
     }
 
     // Calculate cess
     tax_info->cess = tax_info->base_tax * CESS_RATE;
     
-    // Calculate total and monthly tax
-    tax_info->total_tax = tax_info->base_tax + tax_info->cess;
+    // Calculate rebate under Section 87A
+    tax_info->rebate_87a = 0;
+    if (tax_info->base_tax > 0 && tax_info->taxable_income <= REBATE_87A_LIMIT) {
+        tax_info->rebate_87a = (tax_info->base_tax < REBATE_87A_AMOUNT) ? tax_info->base_tax : REBATE_87A_AMOUNT;
+    }
+    
+    // Calculate total tax (after rebate)
+    tax_info->total_tax = tax_info->base_tax + tax_info->cess - tax_info->rebate_87a;
+    
+    // Ensure total tax is not negative
+    if (tax_info->total_tax < 0) {
+        tax_info->total_tax = 0;
+    }
+    
+    // Calculate monthly tax
     tax_info->monthly_tax = tax_info->total_tax / 12.0;
 }
 
@@ -227,7 +262,7 @@ void displayTaxBreakdown(TaxDetails *tax_info) {
     struct tm *tm = localtime(&t);
     
     // Header Section
-    printf("\n+=================== INCOME TAX CALCULATOR ===================+\n");
+    printf("\n+=================== BHARATAX ===================+\n");
     printf(SECTION_BORDER);
     printf("|  Assessment Year: %s-%d                              |\n", 
            tax_info->assessment_year, atoi(tax_info->assessment_year) + 1);
@@ -242,8 +277,11 @@ void displayTaxBreakdown(TaxDetails *tax_info) {
     formatCurrency(formatted_amount, tax_info->gross_income);
     printf(FORMAT_AMOUNT, "Yearly Income:", formatted_amount);
     
-    formatCurrency(formatted_amount, tax_info->deductions);
-    printf(FORMAT_AMOUNT, "Less: Total Deductions:", formatted_amount);
+    formatCurrency(formatted_amount, tax_info->deductions_80c);
+    printf(FORMAT_AMOUNT, "Less: 80C Deductions:", formatted_amount);
+    
+    formatCurrency(formatted_amount, tax_info->standard_deduction);
+    printf(FORMAT_AMOUNT, "Less: Standard Deduction:", formatted_amount);
     printf("|                          -------------------------------   |\n");
     
     formatCurrency(formatted_amount, tax_info->taxable_income);
@@ -257,16 +295,22 @@ void displayTaxBreakdown(TaxDetails *tax_info) {
     char slab_info[100];
     switch(tax_info->tax_slab) {
         case 0:
-            sprintf(slab_info, "* No Tax (Income up to Rs. 2,50,000/-)");
+            sprintf(slab_info, "* No Tax (Income up to Rs. 3,00,000/-)");
             break;
         case 5:
-            sprintf(slab_info, "* 5%% Tax (Income Rs. 2,50,001 to Rs. 5,00,000/-)");
+            sprintf(slab_info, "* 5%% Tax (Income Rs. 3,00,001 to Rs. 7,00,000/-)");
+            break;
+        case 10:
+            sprintf(slab_info, "* 10%% Tax (Income Rs. 7,00,001 to Rs. 10,00,000/-)");
+            break;
+        case 15:
+            sprintf(slab_info, "* 15%% Tax (Income Rs. 10,00,001 to Rs. 12,00,000/-)");
             break;
         case 20:
-            sprintf(slab_info, "* 20%% Tax (Income Rs. 5,00,001 to Rs. 10,00,000/-)");
+            sprintf(slab_info, "* 20%% Tax (Income Rs. 12,00,001 to Rs. 15,00,000/-)");
             break;
         case 30:
-            sprintf(slab_info, "* 30%% Tax (Income above Rs. 10,00,000/-)");
+            sprintf(slab_info, "* 30%% Tax (Income above Rs. 15,00,000/-)");
             break;
     }
     printf(FORMAT_TEXT, slab_info);
@@ -281,6 +325,11 @@ void displayTaxBreakdown(TaxDetails *tax_info) {
     
     formatCurrency(formatted_amount, tax_info->cess);
     printf(FORMAT_AMOUNT, "Add: Health & Edu Cess:", formatted_amount);
+    
+    if (tax_info->rebate_87a > 0) {
+        formatCurrency(formatted_amount, tax_info->rebate_87a);
+        printf(FORMAT_AMOUNT, "Less: Section 87A Rebate:", formatted_amount);
+    }
     printf("|                           -------------------------------   |\n");
     
     formatCurrency(formatted_amount, tax_info->total_tax);
@@ -296,14 +345,18 @@ void displayTaxBreakdown(TaxDetails *tax_info) {
         printf(BORDER_LINE);
         printf("|                        TAX SAVING TIPS                       |\n");
         printf(SECTION_BORDER);
-        if (tax_info->deductions < MAX_DEDUCTION) {
-            double remaining = MAX_DEDUCTION - tax_info->deductions;
+        if (tax_info->deductions_80c < MAX_DEDUCTION_80C) {
+            double remaining = MAX_DEDUCTION_80C - tax_info->deductions_80c;
             formatCurrency(formatted_amount, remaining);
             printf("|  * You can still claim additional deductions of Rs. %s  |\n", formatted_amount);
             printf("|    under Section 80C to reduce your tax liability.        |\n");
         }
+        if (tax_info->rebate_87a > 0) {
+            formatCurrency(formatted_amount, tax_info->rebate_87a);
+            printf("|  * You received Section 87A rebate of Rs. %s          |\n", formatted_amount);
+        }
         printf("|  * Consider investments in PPF, ELSS, or Life Insurance    |\n");
-        printf("|    for tax benefits in the next financial year.            |\n");
+        printf("|    for tax benefits in next financial year.            |\n");
     }
     
     printf(BORDER_LINE);
@@ -315,11 +368,11 @@ int main() {
 
     do {
         system("cls");  // Clear screen
-        printf("+=============== INCOME TAX CALCULATOR 2025-26 ===============+\n");
+        printf("+=============== BHARATAX 2025-26 ===============+\n");
         printf("|                                                           |\n");
-        printf("|  Welcome to the Income Tax Calculator                     |\n");
+        printf("|  Welcome to BharaTax - Indian Income Tax Calculator     |\n");
         printf("|  This calculator helps you estimate your income tax       |\n");
-        printf("|  liability for the financial year 2024-25                |\n");
+        printf("|  liability for financial year 2025-26 (New Regime)    |\n");
         printf("|                                                           |\n");
         printf(BORDER_LINE);
         
@@ -329,6 +382,11 @@ int main() {
         // Get income details
         tax_info.gross_income = validateInput("Enter your annual income (in Rs.): ", MIN_INCOME, MAX_INCOME);
         
+        // Initialize deductions
+        tax_info.deductions_80c = 0;
+        tax_info.standard_deduction = STANDARD_DEDUCTION; // Apply standard deduction for salaried
+        tax_info.is_salaried = 1; // Assume salaried by default
+        
         // Calculate deductions if income > SLAB_1_LIMIT
         if (tax_info.gross_income > SLAB_1_LIMIT) {
             printf("\nWould you like to claim deductions under Section 80C? (y/n): ");
@@ -336,12 +394,13 @@ int main() {
             clearInputBuffer();
             
             if (tolower(choice) == 'y') {
-                tax_info.deductions = calculateDeductions();
+                tax_info.deductions_80c = calculateDeductions();
             } else {
-                tax_info.deductions = 0;
+                tax_info.deductions_80c = 0;
             }
         } else {
-            tax_info.deductions = 0;
+            tax_info.deductions_80c = 0;
+            tax_info.standard_deduction = 0; // No standard deduction if no tax
             printf("\nNo tax liability. Deductions not applicable.\n");
         }
 
@@ -361,7 +420,7 @@ int main() {
             time_t t = time(NULL);
             struct tm *tm = localtime(&t);
             
-            sprintf(filename, "tax_calculation_%02d%02d%d_%02d%02d.txt", 
+            sprintf(filename, "bharatax_calculation_%02d%02d%d_%02d%02d.txt", 
                     tm->tm_mday, tm->tm_mon + 1, tm->tm_year + 1900,
                     tm->tm_hour, tm->tm_min);
             
@@ -369,24 +428,27 @@ int main() {
             if (fp != NULL) {
                 char formatted_amount[50];
                 
-                fprintf(fp, "╔════════════════ TAX CALCULATION REPORT ════════════════╗\n");
+                fprintf(fp, "╔══════════════ BHARATAX TAX REPORT ════════════════╗\n");
                 fprintf(fp, "║                                                        ║\n");
                 fprintf(fp, "║  Date: %02d/%02d/%d                                    ║\n", 
                         tm->tm_mday, tm->tm_mon + 1, tm->tm_year + 1900);
                 fprintf(fp, "║  Assessment Year: %s-%d                                ║\n", 
                         tax_info.assessment_year, atoi(tax_info.assessment_year) + 1);
-                fprintf(fp, "╠════════════════════════════════════════════════════════╣\n");
+                fprintf(fp, "╠══════════════════════════════════════════════════════╣\n");
                 
                 formatCurrency(formatted_amount, tax_info.gross_income);
                 fprintf(fp, "║  INCOME DETAILS                                        ║\n");
                 fprintf(fp, "║  Annual Income:         Rs. %-28s  ║\n", formatted_amount);
                 
-                formatCurrency(formatted_amount, tax_info.deductions);
-                fprintf(fp, "║  Total Deductions:      Rs. %-28s  ║\n", formatted_amount);
+                formatCurrency(formatted_amount, tax_info.deductions_80c);
+                fprintf(fp, "║  80C Deductions:       Rs. %-28s  ║\n", formatted_amount);
+                
+                formatCurrency(formatted_amount, tax_info.standard_deduction);
+                fprintf(fp, "║  Standard Deduction:    Rs. %-28s  ║\n", formatted_amount);
                 
                 formatCurrency(formatted_amount, tax_info.taxable_income);
                 fprintf(fp, "║  Taxable Income:        Rs. %-28s  ║\n", formatted_amount);
-                fprintf(fp, "╠════════════════════════════════════════════════════════╣\n");
+                fprintf(fp, "╠══════════════════════════════════════════════════════╣\n");
                 
                 fprintf(fp, "║  TAX CALCULATION                                       ║\n");
                 formatCurrency(formatted_amount, tax_info.base_tax);
@@ -394,10 +456,20 @@ int main() {
                 
                 formatCurrency(formatted_amount, tax_info.cess);
                 fprintf(fp, "║  Health & Edu. Cess:    Rs. %-28s  ║\n", formatted_amount);
-                fprintf(fp, "╠════════════════════════════════════════════════════════╣\n");
                 
-                formatCurrency(formatted_amount, tax_info.total_tax);
-                fprintf(fp, "║  TOTAL TAX PAYABLE:     Rs. %-28s  ║\n", formatted_amount);
+                if (tax_info.rebate_87a > 0) {
+                    formatCurrency(formatted_amount, tax_info.rebate_87a);
+                    fprintf(fp, "║  Section 87A Rebate:   Rs. %-28s  ║\n", formatted_amount);
+                    fprintf(fp, "╠══════════════════════════════════════════════════════╣\n");
+                    
+                    formatCurrency(formatted_amount, tax_info.total_tax);
+                    fprintf(fp, "║  TOTAL TAX PAYABLE:     Rs. %-28s  ║\n", formatted_amount);
+                } else {
+                    fprintf(fp, "╠══════════════════════════════════════════════════════╣\n");
+                    
+                    formatCurrency(formatted_amount, tax_info.total_tax);
+                    fprintf(fp, "║  TOTAL TAX PAYABLE:     Rs. %-28s  ║\n", formatted_amount);
+                }
                 
                 float monthly_tax = tax_info.total_tax / 12;
                 formatCurrency(formatted_amount, monthly_tax);
@@ -416,6 +488,6 @@ int main() {
 
     } while (tolower(choice) == 'y');
 
-    printf("\nThank you for using the Income Tax Calculator!\n");
+    printf("\nThank you for using BharaTax!\n");
     return 0;
 }
